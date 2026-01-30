@@ -13,26 +13,37 @@ Pas de serveur MCP côté infra. Pas de fine-tuning. Le modèle expose une API O
 
 ## Choix du modèle
 
-### Retenu : Qwen2.5-VL-72B-Instruct
+### Retenu : Qwen2.5-VL-72B-Instruct (BF16 pleine précision)
+
+> **Philosophie** : on veut le modèle le plus gros et le plus capable possible, même si c'est pour 2h de compute. Qualité maximale, pas d'économies sur la quantization.
 
 | Critère | Détail |
 |---------|--------|
-| **Params** | 72B dense |
+| **Params** | 72B dense — **BF16 pleine précision** (pas de quantization) |
+| **VRAM requise** | ~144 GB (nécessite multi-GPU) |
 | **Vision** | Images, documents, vidéo, OCR, localisation UI (bounding boxes/points), résolution dynamique |
 | **Tool calling** | Format natif Qwen, compatible OpenAI `tools` — chaînage multi-tours |
 | **Code** | Entraîné sur du code, capable de générer/éditer du code structuré |
 | **Licence** | Qwen License (commercial autorisé avec conditions) |
 | **Écosystème** | Backbone de UI-TARS, supporté par vLLM et SGLang |
 
-**Pourquoi ce modèle et pas un autre :**
+**Modèle encore plus gros à évaluer :**
+
+| Modèle | Params | Actifs | VRAM BF16 | Statut |
+|--------|--------|--------|-----------|--------|
+| **Qwen3-VL-235B-A22B** | 235B MoE | 22B | ~470 GB | Si supporté par SGLang — potentiellement le plus capable de tous |
+| **InternVL3.5-241B-A28B** | 241B MoE | 28B | ~480 GB | SOTA sur ScreenSpot-v2 (92.9%) |
+
+> Ces modèles MoE nécessitent 8x H100 80GB (640 GB VRAM totale). À tester si Koyeb propose ce type d'instances.
+
+**Pourquoi Qwen2.5-VL-72B comme baseline :**
 
 | Alternative | Verdict |
 |-------------|---------|
-| UI-TARS-1.5-7B | Meilleur agent GUI pur (42.5% OSWorld) mais conçu pour le pilotage d'interface (clic/saisie), pas pour le dev agentique (codage, édition de fichiers). Tool calling limité au framework UI-TARS Desktop. |
+| Qwen3-VL-235B-A22B | Le candidat ultime si le support inference est mature. À tester en priorité. |
+| UI-TARS-1.5-7B | Meilleur agent GUI pur (42.5% OSWorld) mais trop petit et conçu pour le pilotage d'interface, pas pour le dev agentique. |
 | Qwen3-VL-72B | Plus récent (sept. 2025), mais le support SGLang/vLLM est moins mature. À réévaluer en phase 2. |
-| Qwen3-VL-30B-A3B (MoE) | Excellent ratio qualité/coût (3B actifs sur 30B). Candidat sérieux si le 72B est trop lourd au cold start. |
-| Qwen2.5-VL-7B | Même architecture, tient sur 1 GPU 24 GB. Fallback si le budget multi-GPU est trop élevé. |
-| InternVL3.5-8B | Bon généraliste mais tool calling moins éprouvé que Qwen. |
+| Qwen2.5-VL-7B | Fallback uniquement — qualité insuffisante pour de l'inspection visuelle exigeante. |
 | DeepSeek-V3.2 | Meilleur sur MCPMark (37%) mais text-only, pas de vision native. |
 
 ---
@@ -136,28 +147,38 @@ L'agent client reçoit ces tool calls, les exécute localement, et renvoie les r
 
 ## Hardware Koyeb
 
-### Configuration cible
+### Configuration cible : le plus gros possible
 
 | Paramètre | Valeur |
 |-----------|--------|
-| **GPU** | 2x A100 80GB |
-| **VRAM totale** | 160 GB |
-| **Précision** | BF16 (72B ≈ 144 GB VRAM) |
-| **Tensor Parallelism** | 2 |
-| **RAM CPU** | 64 GB |
-| **Stockage** | 200 GB (poids modèle + KV cache) |
+| **GPU** | **4x H100 80GB** (si disponible) ou **2x A100 80GB** |
+| **VRAM totale** | 320 GB (4x H100) ou 160 GB (2x A100) |
+| **Précision** | **BF16 pleine précision** — pas de quantization |
+| **Tensor Parallelism** | 4 (H100) ou 2 (A100) |
+| **RAM CPU** | 128 GB |
+| **Stockage** | 300 GB (poids modèle + KV cache) |
 | **Scale-to-zero** | Oui — le service s'éteint après inactivité |
 | **Cold start estimé** | 3-5 min (chargement 144 GB de poids depuis disque) |
 
-### Alternatives plus légères
+### Configuration "modèle ultime" (si Koyeb propose 8x GPU)
 
-| Variante | GPU | VRAM | Cold start |
-|----------|-----|------|------------|
-| Qwen2.5-VL-72B AWQ INT4 | 1x A100 80GB | ~40 GB | ~2 min |
-| Qwen3-VL-30B-A3B | 1x A100 80GB | ~60 GB (poids) / ~6 GB (actifs) | ~1.5 min |
-| Qwen2.5-VL-7B FP16 | 1x L40S 48GB | ~17 GB | ~30 s |
+| Paramètre | Valeur |
+|-----------|--------|
+| **GPU** | 8x H100 80GB (640 GB VRAM) |
+| **Modèle** | Qwen3-VL-235B-A22B (MoE, ~470 GB BF16) |
+| **TP** | 8 |
+| **Avantage** | Le plus gros VLM open-weight existant, qualité maximale |
+| **Cold start** | ~8-15 min |
 
-> **Recommandation** : commencer par **Qwen2.5-VL-72B AWQ INT4 sur 1x A100** pour valider l'architecture, puis passer en BF16 2x A100 si la qualité INT4 est insuffisante.
+### Fallback si les gros GPU ne sont pas disponibles
+
+| Variante | GPU | Précision | Cold start |
+|----------|-----|-----------|------------|
+| Qwen2.5-VL-72B BF16 | 2x A100 80GB | BF16 | ~3-5 min |
+| Qwen2.5-VL-72B AWQ INT4 | 1x A100 80GB | INT4 | ~2 min |
+| Qwen2.5-VL-7B FP16 | 1x L40S 48GB | FP16 | ~30 s |
+
+> **Recommandation** : viser d'abord **4x H100** avec le 72B BF16 (marge de VRAM pour un long contexte). Si indisponible, **2x A100 80GB** en BF16. La quantization est un dernier recours.
 
 ---
 
@@ -167,8 +188,8 @@ L'agent client reçoit ces tool calls, les exécute localement, et renvoie les r
 
 **But** : le modèle tourne, répond aux requêtes vision + texte.
 
-- [ ] Dockerfile : SGLang + CUDA 12.x + Qwen2.5-VL-72B-Instruct (AWQ)
-- [ ] Déploiement Koyeb GPU (1x A100 80GB)
+- [ ] Dockerfile : SGLang + CUDA 12.x + Qwen2.5-VL-72B-Instruct (BF16)
+- [ ] Déploiement Koyeb GPU multi-GPU (4x H100 ou 2x A100 80GB)
 - [ ] Valider `/v1/chat/completions` (texte seul)
 - [ ] Valider vision : envoyer un screenshot, recevoir une description
 - [ ] Valider tool calling : envoyer des tools, recevoir un `tool_call`
@@ -212,9 +233,10 @@ L'agent client reçoit ces tool calls, les exécute localement, et renvoie les r
 
 ```
 Serveur (Koyeb)
-  Modèle       : Qwen2.5-VL-72B-Instruct-AWQ
+  Modèle       : Qwen2.5-VL-72B-Instruct (BF16 pleine précision)
+  Cible ultime : Qwen3-VL-235B-A22B (si supporté)
   Inference    : SGLang (OpenAI-compatible API)
-  GPU          : 1x A100 80GB (AWQ) ou 2x A100 80GB (BF16)
+  GPU          : 4x H100 80GB (idéal) ou 2x A100 80GB (minimum)
   Container    : Docker (CUDA 12.x)
   Scale        : Scale-to-zero, facturation à la seconde
 
@@ -231,11 +253,12 @@ Client (local)
 
 | Risque | Impact | Mitigation |
 |--------|--------|------------|
-| Cold start 3-5 min (72B) | Inutilisable en interactif | Commencer par AWQ INT4 (~2 min). Explorer le warm pool Koyeb. Fallback 7B (~30s). |
+| Cold start 3-5 min (72B BF16) | Inutilisable en interactif | Explorer le warm pool Koyeb. Acceptable pour du batch/async. |
+| Koyeb n'offre pas 4x H100 | Config cible impossible | Fallback 2x A100 80GB. Ou AWQ INT4 sur 1x A100 en dernier recours. |
 | SGLang incompatible Qwen2.5-VL-72B | Blocage | Fallback sur vLLM. Tester avant le déploiement Koyeb. |
 | Tool calling pas assez fiable pour le chaînage | Agent bloqué | Max 20 tours, timeout par tour, validation JSON stricte du tool_call |
-| Qualité vision insuffisante en INT4 | Inspection dégradée | Benchmarker INT4 vs BF16 sur un jeu de test. Passer en BF16 multi-GPU si nécessaire. |
-| Coût GPU Koyeb imprévisible | Dépassement budget | Monitoring coût/tâche. Alertes budget. Fallback 7B si trop cher. |
+| Qwen3-VL-235B pas supporté par SGLang | Modèle ultime inaccessible | Rester sur le 72B BF16 qui est prouvé. Réévaluer quand le support mature. |
+| Coût multi-GPU élevé | Budget | Monitoring coût/tâche. Usage limité à 2h/session. Scale-to-zero strict. |
 
 ---
 
@@ -245,4 +268,5 @@ Client (local)
 - **Pas de fine-tuning** — on utilise le modèle tel quel (instruct)
 - **Scale-to-zero** — le service dort quand il n'est pas utilisé
 - **Qualité > latence** — on accepte quelques secondes par tour pour un meilleur raisonnement
-- **Commencer par AWQ INT4** sur 1x A100, scaler si besoin
+- **BF16 pleine précision** — pas de quantization, viser la qualité maximale
+- **Multi-GPU** — 4x H100 idéal, 2x A100 minimum
