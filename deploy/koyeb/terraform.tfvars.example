@@ -1,0 +1,22 @@
+# Copier ce fichier vers terraform.tfvars et remplir les valeurs
+# cp terraform.tfvars.example terraform.tfvars
+
+# ── Obligatoire ──
+hf_token = "hf_xxxxxxxxxxxxxxxxxxxx"
+
+# ── Optionnel : protéger l'endpoint avec une clé API ──
+# api_key = "sk-my-secret-key"
+
+# ── Optionnel : image Docker privée sur GHCR ──
+# ghcr_username = "valdo404"
+# ghcr_pat      = "ghp_xxxxxxxxxxxxxxxxxxxx"
+
+# ── Override si besoin ──
+# app_name        = "visual-agent"
+# region          = "fra"
+# model_name      = "Qwen/Qwen2.5-VL-72B-Instruct"
+# instance_type   = "gpu-nvidia-4xa100"
+# tensor_parallel = 4
+# dtype           = "bfloat16"
+# max_model_len   = 65536
+# docker_image    = "ghcr.io/valdo404/my-online-llm:latest"
